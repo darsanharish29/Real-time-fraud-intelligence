@@ -1,0 +1,204 @@
+// Prisma Schema for Real-Time Fraud Intelligence & Investigation Platform
+// Database provider: PostgreSQL
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  CITIZEN
+  INVESTIGATOR
+  SENIOR_INVESTIGATOR
+  ADMIN
+}
+
+enum CaseStatus {
+  NEW
+  ASSIGNED
+  UNDER_INVESTIGATION
+  ESCALATED
+  RESOLVED
+  CLOSED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AlertStatus {
+  NEW
+  ACKNOWLEDGED
+  INVESTIGATING
+  RESOLVED
+  DISMISSED
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  CASE_CREATED
+  CASE_ASSIGNED
+  CASE_UPDATED
+  EVIDENCE_ADDED
+  NOTE_ADDED
+  REPORT_GENERATED
+  ACCOUNT_REVIEWED
+  ACCOUNT_FREEZE_RECOMMENDED
+  ROLE_CHANGED
+}
+
+model User {
+  id            String   @id @default(uuid())
+  name          String
+  email         String?  @unique
+  accountNumber String   @unique // Fictional: e.g. DEMO100001
+  aadhaarNumber String   @unique // Fictional: e.g. XXXX-XXXX-1001
+  passwordHash  String
+  role          Role     @default(CITIZEN)
+  phone         String?
+  department    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  assignedCases      FraudCase[]         @relation("AssignedInvestigator")
+  createdNotes       InvestigationNote[]
+  uploadedEvidence   Evidence[]
+  auditLogs          AuditLog[]
+  transactions       Transaction[]
+}
+
+model Transaction {
+  id              String    @id @default(uuid())
+  transactionRef  String    @unique // e.g. TXN-89214
+  accountNumber   String
+  amount          Float
+  currency        String    @default("INR")
+  location        String
+  ipAddress       String
+  deviceId        String
+  timestamp       DateTime  @default(now())
+  status          String    // COMPLETED, FLAGGED, BLOCKED, UNDER_REVIEW
+  riskScore       Int       // 0 - 100
+  riskLevel       RiskLevel
+  riskFactors     String[]  // Array of trigger explanations
+  channel         String    // UPI, NET_BANKING, ATM, POS
+  recipientAccount String?
+
+  user            User?     @relation(fields: [accountNumber], references: [accountNumber])
+  alerts          Alert[]
+  fraudCases      FraudCase[] @relation("TransactionCases")
+}
+
+model FraudCase {
+  id              String      @id @default(uuid())
+  caseNumber      String      @unique // e.g. CASE-1044
+  title           String
+  description     String
+  category        String      // IDENTITY_THEFT, MULE_ACCOUNT, UPI_PHISHING, SYNDICATE
+  status          CaseStatus  @default(NEW)
+  riskLevel       RiskLevel   @default(HIGH)
+  riskScore       Int         // 0 - 100
+  targetAccount   String
+  aadhaarRef      String?
+  assignedToId    String?
+  assignedTo      User?       @relation("AssignedInvestigator", fields: [assignedToId], references: [id])
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  transactions    Transaction[] @relation("TransactionCases")
+  evidence        Evidence[]
+  notes           InvestigationNote[]
+  alerts          Alert[]
+  reports         Report[]
+}
+
+model Alert {
+  id               String      @id @default(uuid())
+  alertCode        String      @unique // e.g. ALT-5012
+  title            String
+  type             String      // VELOCITY_SPIKE, GEO_ANOMALY, UNUSUAL_AMOUNT, REPEATED_ACCOUNT
+  severity         RiskLevel
+  relatedAccount   String
+  relatedTxnRef    String?
+  status           AlertStatus @default(NEW)
+  triggerReason    String
+  occurrenceCount  Int         @default(1) // Alert deduplication count
+  assignedToId     String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  transaction      Transaction? @relation(fields: [relatedTxnRef], references: [transactionRef])
+  caseId           String?
+  fraudCase        FraudCase?   @relation(fields: [caseId], references: [id])
+}
+
+model Evidence {
+  id          String   @id @default(uuid())
+  evidenceRef String   @unique // e.g. EVD-3021
+  caseId      String
+  type        String   // TRANSACTION_RECORD, DEVICE_INFO, LOGIN_EVENT, GEO_EVENT, SYSTEM_ALERT
+  description String
+  fileHash    String   // SHA-256 reference
+  uploadedById String
+  timestamp   DateTime @default(now())
+  status      String   // VERIFIED, PENDING_REVIEW, ARCHIVED
+
+  case        FraudCase @relation(fields: [caseId], references: [id])
+  uploadedBy  User      @relation(fields: [uploadedById], references: [id])
+}
+
+model InvestigationNote {
+  id        String   @id @default(uuid())
+  caseId    String
+  authorId  String
+  note      String
+  timestamp DateTime @default(now())
+
+  case      FraudCase @relation(fields: [caseId], references: [id])
+  author    User      @relation(fields: [authorId], references: [id])
+}
+
+model AuditLog {
+  id          String      @id @default(uuid())
+  userId      String?
+  userName    String
+  userRole    Role
+  action      AuditAction
+  entityType  String      // CASE, TRANSACTION, ACCOUNT, EVIDENCE, USER
+  entityId    String
+  description String
+  timestamp   DateTime    @default(now())
+
+  user        User?       @relation(fields: [userId], references: [id])
+}
+
+model NetworkRelationship {
+  id         String   @id @default(uuid())
+  sourceType String   // ACCOUNT, DEVICE, IP, TRANSACTION, CASE
+  sourceId   String
+  targetType String   // ACCOUNT, DEVICE, IP, TRANSACTION, CASE
+  targetId   String
+  relation   String   // SENT_FUNDS_TO, SHARED_DEVICE, CO_OCCURRING_IP, LINKED_CASE
+  confidence Float    @default(1.0)
+  createdAt  DateTime @default(now())
+}
+
+model Report {
+  id            String   @id @default(uuid())
+  reportRef     String   @unique
+  caseId        String
+  generatedById String
+  title         String
+  content       String   // JSON string or summary
+  createdAt     DateTime @default(now())
+
+  case          FraudCase @relation(fields: [caseId], references: [id])
+}

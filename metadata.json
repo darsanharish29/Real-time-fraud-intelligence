@@ -1,0 +1,6 @@
+{
+  "name": "Real-Time Fraud Intelligence & Investigation Platform",
+  "description": "Full-stack fraud detection, real-time transaction monitoring, investigator case management, and risk intelligence system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
